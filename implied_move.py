@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Optional
 from datetime import datetime
 from alpaca.data.historical import OptionHistoricalDataClient, StockHistoricalDataClient
 from alpaca.data.requests import OptionChainRequest, StockSnapshotRequest
@@ -35,6 +35,7 @@ def _style(text: str, *effects: str) -> str:
     if not _supports_color():
         return str(text)
     return "".join(effects) + str(text) + RESET
+
 
 @dataclass
 class OptionMidQuote:
@@ -267,10 +268,14 @@ class MarketDataService:
         # Compute mid price defensively in case attributes are missing
         quote = getattr(selected_option_data, "latest_quote", None)
         bid_price = (
-            getattr(quote, "bid_price", None) if quote is not None else getattr(selected_option_data, "bid_price", None)
+            getattr(quote, "bid_price", None)
+            if quote is not None
+            else getattr(selected_option_data, "bid_price", None)
         )
         ask_price = (
-            getattr(quote, "ask_price", None) if quote is not None else getattr(selected_option_data, "ask_price", None)
+            getattr(quote, "ask_price", None)
+            if quote is not None
+            else getattr(selected_option_data, "ask_price", None)
         )
         if bid_price is None or ask_price is None:
             raise ValueError(
@@ -363,7 +368,9 @@ def main() -> None:
             lower_bound = current_price - straddle_price
 
             # concise summary box
-            line1_plain = f"{stock_symbol}  ${current_price:.2f} | Exp: {expiration_date}"
+            line1_plain = (
+                f"{stock_symbol}  ${current_price:.2f} | Exp: {expiration_date}"
+            )
             line2_plain = f"ATM: ${strike_price:.2f}"
             line3_plain = f"Implied Move: ±{implied_move:.2f}%"
             line4_plain = f"Range: ${lower_bound:.2f} – ${upper_bound:.2f}"
@@ -374,7 +381,9 @@ def main() -> None:
                 f"{_style(expiration_date, FG_CYAN)}"
             )
             line2_styled = f"ATM: {_style(f'${strike_price:.2f}', FG_WHITE)}"
-            line3_styled = f"Implied Move: {_style(f'±{implied_move:.2f}%', FG_YELLOW, BOLD)}"
+            line3_styled = (
+                f"Implied Move: {_style(f'±{implied_move:.2f}%', FG_YELLOW, BOLD)}"
+            )
             line4_styled = _style(line4_plain, DIM)
 
             lines_plain = [line1_plain, line2_plain, line3_plain, line4_plain]
