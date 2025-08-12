@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 import os
 import sys
 
-DEFAULT_EXPIRATION_DATE = datetime.now().strftime("%Y-%m-%d")
 DEFAULT_TOLERANCE_RATIO = 0.10  # ±10% fallback window for nearest strike
 
 
@@ -43,6 +42,27 @@ class OptionMidQuote:
     bid_price: float
     ask_price: float
     mid_price: float
+
+
+@dataclass
+class ImpliedMoveResult:
+    """Container for the implied move calculation result.
+
+    Designed to be UI-agnostic so both CLI and Streamlit can reuse it.
+    """
+
+    symbol: str
+    expiration_date: str
+    current_price: float
+    strike_price: float
+    call_mid: float
+    put_mid: float
+    straddle_price: float
+    implied_move_percent: float
+    lower_bound: float
+    upper_bound: float
+    selected_call_symbol: Optional[str] = None
+    selected_put_symbol: Optional[str] = None
 
 
 class MarketDataService:
@@ -295,6 +315,89 @@ def compute_implied_move_percent(straddle_price: float, current_price: int) -> f
     return round((straddle_price / current_price) * 100, 2)
 
 
+def compute_implied_move(
+    symbol: str,
+    expiration_date: str,
+    tolerance_ratio: float,
+    data_service: "MarketDataService",
+) -> ImpliedMoveResult:
+    """Pure core calculation that fetches data via the provided service and returns a structured result.
+
+    This function is UI-agnostic and safe to reuse from a Streamlit app or other front-ends.
+    """
+    current_price_int = data_service.get_current_stock_price(symbol)
+    current_price = float(current_price_int)
+    strike_price = current_price
+
+    call_quote = data_service.get_option_mid_quote(
+        underlying_symbol=symbol,
+        option_type="call",
+        strike_price=strike_price,
+        expiration_date=expiration_date,
+        tolerance_ratio=tolerance_ratio,
+    )
+    put_quote = data_service.get_option_mid_quote(
+        underlying_symbol=symbol,
+        option_type="put",
+        strike_price=strike_price,
+        expiration_date=expiration_date,
+        tolerance_ratio=tolerance_ratio,
+    )
+
+    straddle_price = call_quote.mid_price + put_quote.mid_price
+    implied_move = compute_implied_move_percent(straddle_price, current_price)
+    upper_bound = current_price + straddle_price
+    lower_bound = current_price - straddle_price
+
+    return ImpliedMoveResult(
+        symbol=symbol,
+        expiration_date=expiration_date,
+        current_price=current_price,
+        strike_price=strike_price,
+        call_mid=call_quote.mid_price,
+        put_mid=put_quote.mid_price,
+        straddle_price=straddle_price,
+        implied_move_percent=implied_move,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
+        selected_call_symbol=call_quote.symbol,
+        selected_put_symbol=put_quote.symbol,
+    )
+
+
+def render_summary(result: ImpliedMoveResult) -> None:
+    """Print a compact summary box for the implied move result."""
+    line1_plain = (
+        f"{result.symbol}  ${result.current_price:.2f} | Exp: {result.expiration_date}"
+    )
+    line2_plain = f"ATM: ${result.strike_price:.2f}"
+    line3_plain = f"Implied Move: ±{result.implied_move_percent:.2f}%"
+    line4_plain = f"Range: ${result.lower_bound:.2f} – ${result.upper_bound:.2f}"
+
+    line1_styled = (
+        f"{_style(result.symbol, BOLD, FG_WHITE)}  "
+        f"{_style(f'${result.current_price:.2f}', FG_YELLOW, BOLD)} | Exp: "
+        f"{_style(result.expiration_date, FG_CYAN)}"
+    )
+    line2_styled = f"ATM: {_style(f'${result.strike_price:.2f}', FG_WHITE)}"
+    line3_styled = f"Implied Move: {_style(f'±{result.implied_move_percent:.2f}%', FG_YELLOW, BOLD)}"
+    line4_styled = _style(line4_plain, DIM)
+
+    lines_plain = [line1_plain, line2_plain, line3_plain, line4_plain]
+    lines_styled = [line1_styled, line2_styled, line3_styled, line4_styled]
+
+    content_width = max(len(s) for s in lines_plain)
+    horizontal = "─" * (content_width + 2)
+    top = _style("┌" + horizontal + "┐", FG_CYAN, DIM)
+    bottom = _style("└" + horizontal + "┘", FG_CYAN, DIM)
+
+    print(top)
+    for plain, styled in zip(lines_plain, lines_styled):
+        padding = " " * (content_width - len(plain))
+        print("│ " + styled + padding + " │")
+    print(bottom)
+
+
 def prompt_for_stock_symbol(data_service: MarketDataService) -> Optional[str]:
     """Prompt the user until a valid stock ticker is entered or 'q' to quit.
 
@@ -337,68 +440,17 @@ def main() -> None:
                 print("Exiting.")
                 return
 
-            expiration_date = DEFAULT_EXPIRATION_DATE
+            # Compute default expiration at runtime (today, with downstream fallback logic)
+            expiration_date = datetime.now().strftime("%Y-%m-%d")
 
-            current_price = data_service.get_current_stock_price(stock_symbol)
-            strike_price = float(current_price)
-
-            # Attempt to fetch option quotes; if unavailable, re-prompt
-            call_quote = data_service.get_option_mid_quote(
-                underlying_symbol=stock_symbol,
-                option_type="call",
-                strike_price=strike_price,
+            result = compute_implied_move(
+                symbol=stock_symbol,
                 expiration_date=expiration_date,
                 tolerance_ratio=DEFAULT_TOLERANCE_RATIO,
+                data_service=data_service,
             )
 
-            put_quote = data_service.get_option_mid_quote(
-                underlying_symbol=stock_symbol,
-                option_type="put",
-                strike_price=strike_price,
-                expiration_date=expiration_date,
-                tolerance_ratio=DEFAULT_TOLERANCE_RATIO,
-            )
-
-            call_mid_price = call_quote.mid_price
-            put_mid_price = put_quote.mid_price
-            straddle_price = put_mid_price + call_mid_price
-
-            implied_move = compute_implied_move_percent(straddle_price, current_price)
-            upper_bound = current_price + straddle_price
-            lower_bound = current_price - straddle_price
-
-            # concise summary box
-            line1_plain = (
-                f"{stock_symbol}  ${current_price:.2f} | Exp: {expiration_date}"
-            )
-            line2_plain = f"ATM: ${strike_price:.2f}"
-            line3_plain = f"Implied Move: ±{implied_move:.2f}%"
-            line4_plain = f"Range: ${lower_bound:.2f} – ${upper_bound:.2f}"
-
-            line1_styled = (
-                f"{_style(stock_symbol, BOLD, FG_WHITE)}  "
-                f"{_style(f'${current_price:.2f}', FG_YELLOW, BOLD)} | Exp: "
-                f"{_style(expiration_date, FG_CYAN)}"
-            )
-            line2_styled = f"ATM: {_style(f'${strike_price:.2f}', FG_WHITE)}"
-            line3_styled = (
-                f"Implied Move: {_style(f'±{implied_move:.2f}%', FG_YELLOW, BOLD)}"
-            )
-            line4_styled = _style(line4_plain, DIM)
-
-            lines_plain = [line1_plain, line2_plain, line3_plain, line4_plain]
-            lines_styled = [line1_styled, line2_styled, line3_styled, line4_styled]
-
-            content_width = max(len(s) for s in lines_plain)
-            horizontal = "─" * (content_width + 2)
-            top = _style("┌" + horizontal + "┐", FG_CYAN, DIM)
-            bottom = _style("└" + horizontal + "┘", FG_CYAN, DIM)
-
-            print(top)
-            for plain, styled in zip(lines_plain, lines_styled):
-                padding = " " * (content_width - len(plain))
-                print("│ " + styled + padding + " │")
-            print(bottom)
+            render_summary(result)
 
             # Success; exit after one successful run
             return

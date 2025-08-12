@@ -1,7 +1,7 @@
 [project]
-name = "trading"
+name = "Implied-Move-Calculator"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simple program that estimates a stock's implied move for the next expiration by pricing the at‑the‑money straddle using Alpaca options data. It prints a compact, readable summary."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
