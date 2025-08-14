@@ -2,8 +2,13 @@
 
 Simple program that estimates a stock's implied move for the next expiration by pricing the at‑the‑money straddle using Alpaca options data. It prints a compact, readable summary.
 
-### Demo
-![Demo](./demo.png)
+### Demos
+
+- Terminal CLI summary:
+![CLI Demo](./demo.png)
+
+- Streamlit UI dashboard:
+![Streamlit UI Demo](./demo2.png)
 
 ### Requirements
 
